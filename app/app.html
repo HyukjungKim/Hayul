@@ -466,7 +466,7 @@ const Store = {
       this.mode = 'cloud'; this.db = db; this.subscribe();
     } else if ((location.protocol === 'https:' || location.hostname === 'localhost') && await this.probeServer()) {
       this.mode = 'server';
-      setInterval(() => { if (!document.hidden) this.pull(); }, 20000);
+      setInterval(() => { if (!document.hidden) this.pull(); }, 10000);
       document.addEventListener('visibilitychange', () => { if (!document.hidden) this.pull(); });
     } else {
       this.mode = 'local';
@@ -582,8 +582,17 @@ const Store = {
   },
   async addLook(look) { this.looks.push(look); await Local.put('looks', look); },
   async deleteLook(id) { this.looks = this.looks.filter(l => l.id !== id); await Local.del('looks', id); },
-  getAdj(base, itemId) { return (this.adj[base] || {})[itemId] || null; },
+  // 옷을 끌어서 맞춘 위치는 사람마다 따로 저장해요 (예전에 함께 저장된 위치는 기본값으로 써요)
+  adjKey(base) { return this.mode === 'server' && this.email ? base + '__' + this.email.replace(/[^A-Za-z0-9]/g, '_') : base; },
+  getAdj(base, itemId) { const mine = this.adj[this.adjKey(base)]; return (mine && mine[itemId]) || (this.adj[base] || {})[itemId] || null; },
   async setAdj(base, itemId, val) {
+    if (this.mode === 'server' && this.email) {
+      const key = this.adjKey(base), m = { ...(this.adj[key] || {}) };
+      if (val) m[itemId] = val; else { delete m[itemId]; if ((this.adj[base] || {})[itemId]) m[itemId] = { dx: 0, dy: 0, s: 1, r: 0 }; }
+      this.adj[key] = m;
+      await Api.put('adj/' + key, m).catch(() => toast('위치를 저장하지 못했어요'));
+      return;
+    }
     const m = { ...(this.adj[base] || {}) };
     if (val) m[itemId] = val; else delete m[itemId];
     this.adj[base] = m;
@@ -662,19 +671,24 @@ function limbPath(x, pts, w) {
   x.beginPath(); x.moveTo(pts[0].x, pts[0].y); pts.slice(1).forEach(q => x.lineTo(q.x, q.y));
   x.lineWidth = w + 7; x.strokeStyle = SKIN_EDGE; x.stroke(); x.lineWidth = w; x.strokeStyle = SKIN; x.stroke();
 }
-// 아기 손: 손목에서 이어진 동그란 손바닥 + 몸 쪽 엄지 + 손가락 주름 두 줄. u는 팔이 뻗는 방향이에요.
-// cw: 소매 입구 폭. 손목은 그보다 가늘고, 손은 소매 밖으로 자연스럽게 나와요 (팔뚝은 굵고 손목은 가늘게)
-function drawHand(x, wrist, ux, uy, cw = 44) {
-  const k = clamp(cw / 44, .5, 1.1), ww = Math.min(30 * k, cw * .7);
-  const c = { x: wrist.x + ux * 19 * k, y: wrist.y + uy * 19 * k }, ang = Math.atan2(uy, ux);
+// 아기 손: 동그란 손바닥 + 몸 쪽 엄지 + 손가락 주름 두 줄. u는 팔이 뻗는 방향, cw는 소매 입구 폭이에요.
+// sleeve가 true면 소매 끝선 바깥쪽에만 그려서, 소매 옆으로 손목이 삐져나오지 않아요.
+function drawHand(x, wrist, ux, uy, cw = 44, sleeve = false) {
+  const k = clamp(cw / 44, .5, 1.1);
+  const c = { x: wrist.x + ux * 17 * k, y: wrist.y + uy * 17 * k }, ang = Math.atan2(uy, ux);
   let nx = -uy, ny = ux; if ((300 - c.x) * nx < 0) { nx = -nx; ny = -ny; }
-  // 손목: 소매 입구보다 가늘게, 소매 속에서 짧게만 이어져요
-  limbPath(x, [{ x: wrist.x - ux * 10 * k, y: wrist.y - uy * 10 * k }, { x: wrist.x + ux * 6 * k, y: wrist.y + uy * 6 * k }], ww - 6);
+  x.save();
+  if (sleeve) {
+    const b = { x: wrist.x - ux * 3, y: wrist.y - uy * 3 }, R = 200;
+    x.beginPath(); x.moveTo(b.x + nx * R, b.y + ny * R); x.lineTo(b.x + nx * R + ux * R, b.y + ny * R + uy * R);
+    x.lineTo(b.x - nx * R + ux * R, b.y - ny * R + uy * R); x.lineTo(b.x - nx * R, b.y - ny * R); x.closePath(); x.clip();
+  }
   x.lineWidth = 3; x.strokeStyle = SKIN_EDGE; x.fillStyle = SKIN;
   x.beginPath(); x.ellipse(c.x + nx * 14 * k - ux * 3 * k, c.y + ny * 14 * k - uy * 3 * k, 9.5 * k, 7 * k, ang + Math.PI / 4 * Math.sign(nx * uy - ny * ux || 1), 0, 7); x.fill(); x.stroke();
   x.beginPath(); x.ellipse(c.x, c.y, 21 * k, 17 * k, ang, 0, 7); x.fill(); x.stroke();
   x.lineWidth = 2 * Math.max(k, .7); x.strokeStyle = 'rgba(214, 150, 128, .7)';
   [-6, 5].forEach(o => { const px = c.x + ux * 10 * k + nx * o * k, py = c.y + uy * 10 * k + ny * o * k; x.beginPath(); x.moveTo(px - ux * 7 * k, py - uy * 7 * k); x.lineTo(px + ux * 4 * k, py + uy * 4 * k); x.stroke(); });
+  x.restore();
 }
 function drawDoll(x, P, D = {}) {
   x.clearRect(0, 0, DOLL.W, DOLL.H); x.lineCap = 'round'; x.lineJoin = 'round';
@@ -691,7 +705,7 @@ function drawDoll(x, P, D = {}) {
       const a = D.arms[i], dx = a.cuff.x - a.from.x, dy = a.cuff.y - a.from.y, d = Math.hypot(dx, dy) || 1, ux = dx / d, uy = dy / d;
       let w = { x: a.cuff.x - ux * 2, y: a.cuff.y - uy * 2 }, cw = a.width || 44;
       if (a.short) { const e = { x: w.x + ux * DOLL.FA * .85, y: w.y + uy * DOLL.FA * .85 }; limbPath(x, [{ x: w.x - ux * 16, y: w.y - uy * 16 }, e], Math.min(40, cw * .8)); w = e; cw = Math.min(cw, 40); }
-      drawHand(x, w, ux, uy, cw);
+      drawHand(x, w, ux, uy, cw, !a.short);
     } else {
       const e = P['e' + sd], h = P['h' + sd], d = Math.hypot(h.x - e.x, h.y - e.y) || 1;
       drawHand(x, h, (h.x - e.x) / d, (h.y - e.y) / d);
@@ -1024,7 +1038,8 @@ function renderStage() {
   const ph = info.ph;
   $('#photoBtn').innerHTML = ph ? `<img src="${esc(ph.face)}" alt="">` : `<svg viewBox="0 0 24 24" fill="none" stroke="#F2545B" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>`;
   const it = worn(prefs.cat);
-  $('#resetBtn').hidden = !(it && Store.getAdj(info.base, it.id));
+  const ad = it && Store.getAdj(info.base, it.id);
+  $('#resetBtn').hidden = !(ad && (ad.dx || ad.dy || ad.r || (ad.s && ad.s !== 1)));
   renderNote(info);
 }
 function renderNote(info) {
@@ -1252,6 +1267,7 @@ function showTab(t) {
   $('#tryTools').hidden = t !== 'try';
   if (t === 'try') { renderStage(); flow.layout(); }
   if (t === 'closet') renderCloset();
+  if (Store.mode === 'server') Store.pull();
   if (t === 'settings') renderSettings();
   Sound.tick();
 }
