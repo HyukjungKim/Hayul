@@ -84,8 +84,8 @@ main { flex: 1; min-height: 0; position: relative; }
 .stage.photo .floor { display: none; }
 .layer { position: absolute; pointer-events: none; transform-origin: 50% 50%; -webkit-user-drag: none; }
 .layer.base { inset: 0; width: 100%; height: 100%; object-fit: fill; }
-.layer.face { object-fit: cover; -webkit-mask-image: radial-gradient(closest-side, #000 82%, transparent 100%); mask-image: radial-gradient(closest-side, #000 82%, transparent 100%); }
-.layer.face.cut { -webkit-mask-image: none; mask-image: none; filter: drop-shadow(0 2px 3px rgba(60, 40, 50, .18)); }
+.layer.face { object-fit: cover; border-radius: 50%; }
+.layer.face.cut { border-radius: 0; filter: drop-shadow(0 2px 3px rgba(60, 40, 50, .18)); }
 .layer.active { filter: drop-shadow(0 0 0 transparent); }
 .stage.adjusting .layer.active { filter: drop-shadow(0 0 6px rgba(242, 84, 91, .65)); }
 .stage-tools { display: flex; gap: 8px; }
@@ -672,15 +672,18 @@ function limbPath(x, pts, w) {
   x.lineWidth = w + 7; x.strokeStyle = SKIN_EDGE; x.stroke(); x.lineWidth = w; x.strokeStyle = SKIN; x.stroke();
 }
 // 아기 손: 손목에서 이어진 동그란 손바닥 + 몸 쪽 엄지 + 손가락 주름 두 줄. u는 팔이 뻗는 방향이에요.
-function drawHand(x, wrist, ux, uy) {
-  const c = { x: wrist.x + ux * 20, y: wrist.y + uy * 20 }, ang = Math.atan2(uy, ux);
+// cw: 소매 입구 폭. 손목은 그보다 가늘고, 손은 소매 밖으로 자연스럽게 나와요 (팔뚝은 굵고 손목은 가늘게)
+function drawHand(x, wrist, ux, uy, cw = 44) {
+  const k = clamp(cw / 44, .5, 1.1), ww = Math.min(30 * k, cw * .7);
+  const c = { x: wrist.x + ux * 19 * k, y: wrist.y + uy * 19 * k }, ang = Math.atan2(uy, ux);
   let nx = -uy, ny = ux; if ((300 - c.x) * nx < 0) { nx = -nx; ny = -ny; }
-  limbPath(x, [{ x: wrist.x - ux * 24, y: wrist.y - uy * 24 }, { x: wrist.x + ux * 4, y: wrist.y + uy * 4 }], 30);
-  x.lineWidth = 3.5; x.strokeStyle = SKIN_EDGE; x.fillStyle = SKIN;
-  x.beginPath(); x.ellipse(c.x + nx * 15 - ux * 3, c.y + ny * 15 - uy * 3, 10, 7.5, ang + Math.PI / 4 * Math.sign(nx * uy - ny * ux || 1), 0, 7); x.fill(); x.stroke();
-  x.beginPath(); x.ellipse(c.x, c.y, 22, 18, ang, 0, 7); x.fill(); x.stroke();
-  x.lineWidth = 2.2; x.strokeStyle = 'rgba(214, 150, 128, .7)';
-  [-6, 5].forEach(o => { const px = c.x + ux * 11 + nx * o, py = c.y + uy * 11 + ny * o; x.beginPath(); x.moveTo(px - ux * 7, py - uy * 7); x.lineTo(px + ux * 4, py + uy * 4); x.stroke(); });
+  // 손목: 소매 입구보다 가늘게, 소매 속에서 짧게만 이어져요
+  limbPath(x, [{ x: wrist.x - ux * 10 * k, y: wrist.y - uy * 10 * k }, { x: wrist.x + ux * 6 * k, y: wrist.y + uy * 6 * k }], ww - 6);
+  x.lineWidth = 3; x.strokeStyle = SKIN_EDGE; x.fillStyle = SKIN;
+  x.beginPath(); x.ellipse(c.x + nx * 14 * k - ux * 3 * k, c.y + ny * 14 * k - uy * 3 * k, 9.5 * k, 7 * k, ang + Math.PI / 4 * Math.sign(nx * uy - ny * ux || 1), 0, 7); x.fill(); x.stroke();
+  x.beginPath(); x.ellipse(c.x, c.y, 21 * k, 17 * k, ang, 0, 7); x.fill(); x.stroke();
+  x.lineWidth = 2 * Math.max(k, .7); x.strokeStyle = 'rgba(214, 150, 128, .7)';
+  [-6, 5].forEach(o => { const px = c.x + ux * 10 * k + nx * o * k, py = c.y + uy * 10 * k + ny * o * k; x.beginPath(); x.moveTo(px - ux * 7 * k, py - uy * 7 * k); x.lineTo(px + ux * 4 * k, py + uy * 4 * k); x.stroke(); });
 }
 function drawDoll(x, P, D = {}) {
   x.clearRect(0, 0, DOLL.W, DOLL.H); x.lineCap = 'round'; x.lineJoin = 'round';
@@ -695,9 +698,9 @@ function drawDoll(x, P, D = {}) {
   ['L', 'R'].forEach((sd, i) => {
     if (D.arms) {
       const a = D.arms[i], dx = a.cuff.x - a.from.x, dy = a.cuff.y - a.from.y, d = Math.hypot(dx, dy) || 1, ux = dx / d, uy = dy / d;
-      let w = { x: a.cuff.x + ux * 2, y: a.cuff.y + uy * 2 };
-      if (a.short) { const e = { x: w.x + ux * DOLL.FA * .85, y: w.y + uy * DOLL.FA * .85 }; limbPath(x, [{ x: w.x - ux * 16, y: w.y - uy * 16 }, e], 40); w = e; }
-      drawHand(x, w, ux, uy);
+      let w = { x: a.cuff.x - ux * 2, y: a.cuff.y - uy * 2 }, cw = a.width || 44;
+      if (a.short) { const e = { x: w.x + ux * DOLL.FA * .85, y: w.y + uy * DOLL.FA * .85 }; limbPath(x, [{ x: w.x - ux * 16, y: w.y - uy * 16 }, e], Math.min(40, cw * .8)); w = e; cw = Math.min(cw, 40); }
+      drawHand(x, w, ux, uy, cw);
     } else {
       const e = P['e' + sd], h = P['h' + sd], d = Math.hypot(h.x - e.x, h.y - e.y) || 1;
       drawHand(x, h, (h.x - e.x) / d, (h.y - e.y) / d);
@@ -895,9 +898,23 @@ async function analyzeGarment(it) {
     const side = dir => {
       let edge = -1;
       for (let i = 0; i < W && edge < 0; i++) { const px = dir < 0 ? i : W - 1 - i; for (let py = 0; py < H; py++) if (on(px, py)) { edge = px; break; } }
-      const band = Math.max(2, Math.round(W * .05)); let sy = 0, n = 0;
-      for (let k = 0; k < band; k++) { const px = edge - dir * k; if (px < 0 || px >= W) continue; for (let py = 0; py < H; py++) if (on(px, py)) { sy += py; n++; } }
-      return { x: (edge - dir * band / 2) / W, y: n ? sy / n / H : .5 };
+      const band = Math.max(2, Math.round(W * .05)); let sy = 0, n = 0; const pts = [];
+      for (let k = 0; k < band; k++) { const px = edge - dir * k; if (px < 0 || px >= W) continue; for (let py = 0; py < H; py++) if (on(px, py)) { sy += py; n++; pts.push(px, py); } }
+      const cx = edge - dir * band / 2, cy = n ? sy / n : H / 2;
+      // 소매 입구 폭: 어깨→소매 끝 방향에 수직으로 잰 너비 (손목·손 크기를 여기에 맞춰요)
+      const sx = (dir < 0 ? .3 : .7) * W, s0 = .12 * H, ul = Math.hypot(cx - sx, cy - s0) || 1, nx = -(cy - s0) / ul, ny = (cx - sx) / ul;
+      let lo = Infinity, hi = -Infinity; for (let i = 0; i < pts.length; i += 2) { const t = pts[i] * nx + pts[i + 1] * ny; if (t < lo) lo = t; if (t > hi) hi = t; }
+      // 소매 끝 근처 모양으로 소매가 뻗은 방향을 구해요 (손이 소매와 같은 방향으로 나오게)
+      let mx = 0, my = 0, m = 0; const q = [];
+      for (let py = Math.max(0, Math.floor(cy - H * .2)); py < Math.min(H, cy + H * .2); py++) for (let k = 0; k < W * .18; k++) { const px = edge - dir * k; if (px >= 0 && px < W && on(px, py)) { q.push(px, py); mx += px; my += py; m++; } }
+      let ax = dir, ay = 0;
+      if (m > 20) {
+        mx /= m; my /= m; let sxx = 0, syy = 0, sxy = 0;
+        for (let i = 0; i < q.length; i += 2) { const a = q[i] - mx, b = q[i + 1] - my; sxx += a * a; syy += b * b; sxy += a * b; }
+        const th = .5 * Math.atan2(2 * sxy, sxx - syy); ax = Math.cos(th); ay = Math.sin(th);
+        if (ax * dir + ay * .3 < 0) { ax = -ax; ay = -ay; }
+      }
+      return { x: cx / W, y: cy / H, w: n ? (hi - lo) / W : .08, ix: (cx - ax * W * .12) / W, iy: (cy - ay * W * .12) / H };
     };
     out.cuffL = side(-1); out.cuffR = side(1);
     // 몸판 폭: 밑단 근처(소매가 없는 줄)의 가로 범위
@@ -944,13 +961,13 @@ function buildScene(info) {
     const it = worn(c.id); if (!it) continue;
     const adj = adjFor(info, c.id, it), p = place(c.id, it.w / it.h, A);
     add(c.id, c.id, it.src, p.x + adj.dx * p.L, p.y + adj.dy * p.L, p.w, p.h, adj);
-    tfs[c.id] = { it, tf: garmentTf(p, adj) };
+    tfs[c.id] = { it, tf: garmentTf(p, adj), pxu: p.w * (adj.s || 1) };
   }
   if (info.kind === 'doll') {
     const toD = q => ({ x: q.x / A.k, y: q.y / A.k }), m = q => ({ x: q.x * A.k, y: q.y * A.k });
     // 손은 가장 바깥 옷(외투가 있으면 외투)의 소매 끝에서 나와요
     const sl = tfs.outer || tfs.top, gs = sl && garmentInfo(sl.it);
-    if (gs && gs.cuffL) doll.arms = ['L', 'R'].map(sd => { const cf = gs['cuff' + sd]; return { cuff: toD(sl.tf(cf.x, cf.y)), from: toD(sl.tf(sd === 'L' ? .3 : .7, .12)), short: cf.y < .42 }; });
+    if (gs && gs.cuffL) doll.arms = ['L', 'R'].map(sd => { const cf = gs['cuff' + sd]; return { cuff: toD(sl.tf(cf.x, cf.y)), from: toD(cf.ix != null ? sl.tf(cf.ix, cf.iy) : sl.tf(sd === 'L' ? .3 : .7, .12)), short: cf.y < .42, width: (cf.w || .08) * sl.pxu / A.k }; });
     const bt = tfs.bottom, gb = bt && garmentInfo(bt.it);
     if (gb && gb.hemL) {
       doll.legs = ['L', 'R'].map(sd => toD(bt.tf(gb['hem' + sd].x, gb['hem' + sd].y)));
@@ -1696,10 +1713,7 @@ async function saveLook() {
       const dc = makeCanvas(W, H); const dx = dc.getContext('2d'); dx.setTransform(W / DOLL.W, 0, 0, H / DOLL.H, 0, 0); drawDoll(dx, pose(), scene.doll); x.drawImage(dc, 0, 0);
       const f = { ...faceC(), r: faceR() }, kk = W / DOLL.W; const fi = await loadImg(faceSrc(info.ph)); const D = Math.round(2 * f.r * kk);
       const fc = makeCanvas(D, D); const fx = fc.getContext('2d'); fx.drawImage(fi, 0, 0, D, D);
-      if (!(info.ph && info.ph.faceCut)) { // 무대와 같은 부드러운 가장자리
-        const g2 = fx.createRadialGradient(D / 2, D / 2, 0, D / 2, D / 2, D / 2); g2.addColorStop(.82, '#000'); g2.addColorStop(1, 'rgba(0,0,0,0)');
-        fx.globalCompositeOperation = 'destination-in'; fx.fillStyle = g2; fx.fillRect(0, 0, D, D);
-      }
+      if (!(info.ph && info.ph.faceCut)) { fx.globalCompositeOperation = 'destination-in'; fx.beginPath(); fx.arc(D / 2, D / 2, D / 2, 0, 7); fx.fill(); }
       x.drawImage(fc, (f.x - f.r) * kk, (f.y - f.r) * kk);
     } else x.drawImage(await loadImg(info.ph.full), 0, 0, W, H);
     const draws = scene.ops.slice();
