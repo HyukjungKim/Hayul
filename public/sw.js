@@ -1,5 +1,5 @@
 // 앱 화면은 항상 서버에서 최신으로 받고(안 되면 저장해 둔 것으로 열어요), 아이콘·글꼴 같은 파일은 저장해 둔 것을 먼저 써요
-const CACHE = 'hayul-closet-v11';
+const CACHE = 'hayul-closet-v12';
 const FILES = ['./', './index.html', './manifest.webmanifest', './icons/icon-180.png', './icons/icon-192.png', './icons/icon-512.png'];
 self.addEventListener('install', e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(FILES)).catch(() => {})); self.skipWaiting(); });
 self.addEventListener('activate', e => { e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k !== CACHE).map(k => caches.delete(k))))); self.clients.claim(); });

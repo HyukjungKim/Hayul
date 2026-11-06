@@ -1777,7 +1777,7 @@ const Sound = {
       this.ctx = new AC(); this.master = this.ctx.createGain(); this.master.gain.value = prefs.vol; this.master.connect(this.ctx.destination);
       this.musicGain = this.ctx.createGain(); this.musicGain.gain.value = .55; this.musicGain.connect(this.master);
     }
-    if (this.ctx.state === 'suspended') this.ctx.resume();
+    if (this.ctx.state !== 'running' && this.ctx.state !== 'closed') this.ctx.resume().catch(() => {}); // iPhone은 'interrupted' 상태도 있어요
     return this.ctx;
   },
   setVol(v) { prefs.vol = v; savePrefs(); if (this.master) this.master.gain.value = v; },
@@ -1826,17 +1826,17 @@ $('#musicBtn').onclick = () => {
 };
 // iPhone은 손가락을 뗄 때(터치가 끝날 때)만 소리를 켤 수 있어요. 무음 모드에서는 소리를 내지 않아요.
 try { if (navigator.audioSession) navigator.audioSession.type = 'ambient'; } catch {}
+// 다른 앱(메일 등)에 다녀오면 iPhone이 소리를 멈춰요. 그래서 화면을 누를 때마다 멈춘 소리를 다시 켜요.
 const UNLOCK = ['touchend', 'click', 'pointerup', 'keydown'];
 function unlockAudio() {
+  if (!prefs.music && !prefs.sfx) return;
   const c = Sound.ensure(); if (!c) return;
   if (prefs.music && !Sound.playing) Sound.start();
-  const done = () => { if (c.state === 'running') UNLOCK.forEach(t => document.removeEventListener(t, unlockAudio, true)); };
-  if (c.state === 'running') done(); else c.resume().then(done).catch(() => {});
 }
 UNLOCK.forEach(t => document.addEventListener(t, unlockAudio, true));
 document.addEventListener('visibilitychange', () => {
   if (!Sound.ctx) return;
-  if (document.hidden) Sound.ctx.suspend(); else if (Sound.playing) Sound.ctx.resume();
+  if (document.hidden) Sound.ctx.suspend().catch(() => {}); else if (Sound.playing) Sound.ctx.resume().catch(() => {});
 });
 
 /* ───────────── AI 진짜로 입혀보기 (fal.ai · FASHN 가상 피팅) ───────────── */
