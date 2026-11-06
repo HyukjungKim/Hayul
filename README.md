@@ -20,3 +20,9 @@
 4. iPhone Safari에서 workers.dev 주소 열기 → 이메일 코드로 로그인 → 공유 → 홈 화면에 추가 → 홈 화면 앱에서 한 번 더 로그인
 
 서버는 Access가 붙여주는 로그인 이메일이 `ALLOWED_EMAILS`에 있을 때만 데이터를 보여줘요. main에 올리면 자동으로 다시 배포되고, 앱은 열 때마다 최신 화면을 받아요.
+
+## AI 누끼 (옷 배경 지우기)
+
+- `public/bg/` — 아이폰 안에서 배경을 지우는 AI 모델과 실행 파일 ([@imgly/background-removal](https://github.com/imgly/background-removal-js) 1.4.5, ISNet small 모델). 처음 한 번 받아 두고 다음부터는 저장해 둔 것을 써요. 사진은 밖으로 나가지 않아요.
+- 이 부분은 AGPL-3.0 라이선스예요 (`public/bg/LICENSE-imgly.md`). 가족끼리 쓰는 비공개 앱이라 문제는 없지만, 앱을 남에게 공개·배포할 때는 이 라이선스를 따라야 해요.
+- 배경이 이미 투명한 PNG(다른 앱에서 누끼 딴 사진)를 올리면 다시 지우지 않고 그대로 써요.

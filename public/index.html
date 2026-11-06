@@ -1433,11 +1433,15 @@ function rotate90(c) {
   const o = makeCanvas(c.height, c.width); const x = o.getContext('2d');
   x.translate(o.width, 0); x.rotate(Math.PI / 2); x.drawImage(c, 0, 0); return o;
 }
-// AI 배경 지우기 (fal.ai BiRefNet). 홈 화면 앱 + API 키가 있을 때만 보여요.
-async function aiCutout(canvas) {
-  const out = await FAL.run({ image_url: scaled(canvas, 1280).toDataURL('image/jpeg', .9) }, null, 'fal-ai/birefnet');
-  const url = out && out.image && out.image.url; if (!url) throw new Error('no image');
-  const im = await loadImg(await urlToDataURL(url));
+// AI 누끼: 아이폰 안에서 직접 배경을 지워요 (무료, 사진이 밖으로 나가지 않아요).
+// 처음 한 번 AI 모델(약 55MB)을 우리 앱 서버의 bg/ 폴더에서 받아 두고, 다음부터는 저장해 둔 것을 써요.
+let bgLib = null;
+async function aiCutout(canvas, onProgress) {
+  if (!bgLib) bgLib = await import(new URL('bg/bgremove.js', location.href).href);
+  const blob = await toBlob(scaled(canvas, 1280), 'image/png');
+  const res = await bgLib.removeBackground(blob, { publicPath: new URL('bg/', location.href).href, model: 'small', output: { format: 'image/png' }, progress: onProgress });
+  const url = URL.createObjectURL(res); let im;
+  try { im = await loadImg(url); } finally { URL.revokeObjectURL(url); }
   const c = makeCanvas(canvas.width, canvas.height); const x = c.getContext('2d'); x.drawImage(im, 0, 0, c.width, c.height);
   const d = x.getImageData(0, 0, c.width, c.height).data; const m = new Uint8Array(c.width * c.height);
   for (let i = 0; i < m.length; i++) m[i] = d[i * 4 + 3] > 127 ? 1 : 0;
@@ -1454,12 +1458,12 @@ async function addGarment(presetCat, opts = {}) {
   }
   let src = scaled(img, 1500), W, H, data, ycc, C, mask, aiMask = null, edits, undo = [];
   let slider = opts.circle ? 0 : 50, cat = presetCat || prefs.cat || 'top', tool = 'move';
-  const canAI = Store.mode !== 'cloud' && !!FAL.key();
+  const canAI = Store.mode !== 'cloud'; // claude.ai 링크에서는 모델 파일을 받을 수 없어요
 
   const s = openSheet(`
     <div class="sheet-head"><button class="x" data-close>닫기</button><h2>${opts.title || '옷 등록'}</h2><span style="width:52px"></span></div>
     <div class="editor-canvas" id="edWrap"><canvas id="edCv"></canvas><button class="tool fit" id="fitBtn" hidden>전체 보기</button><div class="busy" id="busy" hidden>배경 지우는 중…</div></div>
-    <div class="tools"><button class="tool" id="rotBtn">↻ 돌리기</button>${canAI ? '<button class="tool" id="aiCut">AI로 배경 지우기</button>' : ''}<span style="flex:1"></span><button class="tool" id="undoBtn">되돌리기</button></div>
+    <div class="tools"><button class="tool" id="rotBtn">↻ 돌리기</button>${canAI ? '<button class="tool" id="aiCut">AI 누끼</button>' : ''}<span style="flex:1"></span><button class="tool" id="undoBtn">되돌리기</button></div>
     <div class="tools" id="tolRow"><label for="tol">배경 지우기</label><input type="range" id="tol" min="0" max="100" value="${slider}"></div>
     <div class="tools"><div class="seg" id="brush"><button data-t="move" class="on">이동</button><button data-t="erase">지우개</button><button data-t="keep">살리기</button></div><label for="bsz" style="margin-left:4px">붓</label><input type="range" id="bsz" min="4" max="44" value="11"></div>
     <div class="catpick" id="catPick" ${opts.onSave ? 'hidden' : ''}>${CATS.map(c => `<button data-c="${c.id}" class="${c.id === cat ? 'on' : ''}">${c.name}</button>`).join('')}</div>
@@ -1492,6 +1496,11 @@ async function addGarment(presetCat, opts = {}) {
     cv.width = W; cv.height = H; out = ctx.createImageData(W, H); view.z = 1; applyView(); draw();
   };
   busy(true); await sleep(30); load(src);
+  // 이미 배경이 투명한 사진(제미나이 등에서 누끼 딴 PNG)은 다시 지우지 않고 그대로 써요
+  if (!opts.circle) {
+    let clear = 0; for (let i = 3; i < data.data.length; i += 4) if (data.data[i] < 16) clear++;
+    if (clear > W * H * .05) { aiMask = new Uint8Array(W * H); for (let i = 0; i < W * H; i++) aiMask[i] = data.data[i * 4 + 3] > 127 ? 1 : 0; $('#tolRow', s.el).hidden = true; draw(); toast('배경이 이미 지워진 사진이라 그대로 썼어요'); }
+  }
   // 머리 누끼: 동그라미 바깥은 지운 채로 시작해서, 머리카락 주변 배경만 지우개로 정리하면 돼요
   if (opts.circle) { const r = Math.min(W, H) / 2; for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if ((x - W / 2) ** 2 + (y - H / 2) ** 2 > r * r) edits[y * W + x] = 1; draw(); }
   busy(false);
@@ -1515,9 +1524,15 @@ async function addGarment(presetCat, opts = {}) {
   };
   if (canAI) $('#aiCut', s.el).onclick = async e => {
     const btn = e.currentTarget; if (btn.disabled) return; btn.disabled = true; busy(true);
-    try { aiMask = await aiCutout(src); edits = new Uint8Array(W * H); undo = []; $('#tolRow', s.el).hidden = true; draw(); toast('AI가 배경을 지웠어요'); }
-    catch (err) { toast(friendlyError(err)); }
-    finally { busy(false); btn.disabled = false; }
+    const label = $('#busy', s.el), was = label.textContent;
+    label.textContent = 'AI가 배경을 지우는 중…';
+    const onProgress = (key, cur, total) => {
+      if (String(key).startsWith('fetch') && total) label.textContent = `AI 준비 중 ${Math.round(cur / total * 100)}% (처음 한 번만)`;
+      else label.textContent = 'AI가 배경을 지우는 중…';
+    };
+    try { aiMask = await aiCutout(src, onProgress); edits = new Uint8Array(W * H); undo = []; $('#tolRow', s.el).hidden = true; draw(); Sound.pop(); }
+    catch (err) { console.warn(err); toast('AI 누끼를 하지 못했어요. 인터넷 연결을 확인하고 다시 해주세요'); }
+    finally { busy(false); label.textContent = was; btn.disabled = false; }
   };
 
   // 한 손가락: 이동 또는 붓, 두 손가락: 확대·이동 (붓질 중이었다면 그 붓질은 취소)
