@@ -40,6 +40,11 @@ h1, h2, h3 { margin: 0; font-family: var(--font-cute); font-weight: 400; text-wr
 
 /* header */
 .top { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-block: 8px 2px; }
+/* 홈 화면 앱: 시계·배터리 줄 아래가 흐려지지 않도록 그 띠를 바탕색으로 덮고, 제목을 조금 더 내려요 */
+@media (display-mode: standalone) {
+  body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); background: var(--milk); z-index: 200; }
+  .top { padding-top: 18px; }
+}
 .brand { display: flex; align-items: center; gap: 8px; }
 .brand h1 { font-size: 21px; letter-spacing: -.4px; white-space: nowrap; }
 .brand h1 b { color: var(--berry); font-weight: 400; }
@@ -1766,7 +1771,7 @@ const Sound = {
     if (this.ctx.state !== 'running' && this.ctx.state !== 'closed') this.ctx.resume().catch(() => {}); // iPhone은 'interrupted' 상태도 있어요
     return this.ctx;
   },
-  setVol(v) { prefs.vol = v; savePrefs(); if (this.master) this.master.gain.value = v; },
+  setVol(v) { prefs.vol = v; savePrefs(); if (this.master) { const g = this.master.gain; g.cancelScheduledValues(this.ctx.currentTime); g.value = v; } },
   voice(e, t, spb) {
     const c = this.ctx, o = c.createOscillator(), g = c.createGain(); const dur = e.d * spb;
     o.frequency.value = hz(e.m);
@@ -1820,10 +1825,23 @@ function unlockAudio() {
   if (prefs.music && !Sound.playing) Sound.start();
 }
 UNLOCK.forEach(t => document.addEventListener(t, unlockAudio, true));
+// 앱을 나갈 때 소리를 뚝 끊으면 '띠잉' 하고 튀어서, 아주 짧게 줄인 다음 멈춰요. 돌아오면 부드럽게 다시 키워요.
+function fadeAudio(to, sec) {
+  const c = Sound.ctx; if (!c || !Sound.master) return;
+  const g = Sound.master.gain, t = c.currentTime;
+  g.cancelScheduledValues(t); g.setValueAtTime(g.value, t); g.linearRampToValueAtTime(to, t + sec);
+}
+function pauseAudio() {
+  if (!Sound.ctx) return;
+  fadeAudio(0, .06);
+  setTimeout(() => { if (document.hidden) Sound.ctx.suspend().catch(() => {}); }, 90);
+}
 document.addEventListener('visibilitychange', () => {
   if (!Sound.ctx) return;
-  if (document.hidden) Sound.ctx.suspend().catch(() => {}); else if (Sound.playing) Sound.ctx.resume().catch(() => {});
+  if (document.hidden) pauseAudio();
+  else Sound.ctx.resume().catch(() => {}).finally(() => fadeAudio(prefs.vol, .4));
 });
+window.addEventListener('pagehide', pauseAudio);
 
 /* ───────────── AI 진짜로 입혀보기 (fal.ai · FASHN 가상 피팅) ───────────── */
 const APP_URL = 'https://hayuls-closet.twoland0875.workers.dev/'; // 홈 화면 앱 주소
