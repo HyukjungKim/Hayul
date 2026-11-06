@@ -56,8 +56,8 @@ h1, h2, h3 { margin: 0; font-family: var(--font-cute); font-weight: 400; text-wr
 .top { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-block: 8px 2px; }
 /* 홈 화면 앱: 시계·배터리 줄 아래가 흐려지지 않도록 그 띠를 바탕색으로 덮고, 제목을 조금 더 내려요 */
 @media (display-mode: standalone) {
-  body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); background: var(--milk); z-index: 200; }
-  .top { padding-top: 18px; }
+  body::before { content: ""; position: fixed; inset: 0 0 auto; height: calc(env(safe-area-inset-top, 0px) + 22px); background: var(--milk); z-index: 200; pointer-events: none; }
+  .top { padding-top: 38px; }
 }
 .brand { display: flex; align-items: center; gap: 8px; }
 .brand h1 { font-size: 21px; letter-spacing: -.4px; white-space: nowrap; }
