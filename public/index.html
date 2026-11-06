@@ -365,6 +365,8 @@ const CATS = [
 ];
 const CAT = Object.fromEntries(CATS.map(c => [c.id, c]));
 // 설정에서 '바지가 신발 덮기'를 켜면 하의가 신발 위로 올라가요
+// 얼굴은 상의·외투보다 위, 머리띠·머리핀·모자보다 아래예요
+const FACE_Z = 65;
 const zOf = cat => (cat === 'bottom' && prefs.pantsOverShoes) ? 35 : (cat === 'top' && prefs.tuckTop) ? 15 : CAT[cat].z;
 const HOMES = [
   { id: 'top', name: '상의 옷장', kind: 'hang', cats: ['top'] },
@@ -982,10 +984,14 @@ function buildScene(info) {
     add(c.id, c.id, it.src, p.x + adj.dx * p.L, p.y + adj.dy * p.L, p.w, p.h, adj);
     tfs[c.id] = { it, tf: garmentTf(p, adj), pxu: p.w * (adj.s || 1) };
   }
+  // 외투가 상의 위에 제대로 겹쳐 있는지 (외투를 옆으로 끌어 놓으면 겹친 게 아니에요)
+  const topOp = ops.find(o => o.cat === 'top'), outOp = ops.find(o => o.cat === 'outer');
+  const overlapped = !!(topOp && outOp) && Math.abs((outOp.x + outOp.w / 2) - (topOp.x + topOp.w / 2)) < topOp.w * topOp.s * .3
+    && Math.abs((outOp.y + outOp.h / 2) - (topOp.y + topOp.h / 2)) < topOp.h * topOp.s * .4;
   if (info.kind === 'doll') {
     const toD = q => ({ x: q.x / A.k, y: q.y / A.k }), m = q => ({ x: q.x * A.k, y: q.y * A.k });
-    // 손은 가장 바깥 옷(외투가 있으면 외투)의 소매 끝에서 나와요
-    const sl = tfs.outer || tfs.top, gs = sl && garmentInfo(sl.it);
+    // 손은 가장 바깥 옷의 소매 끝에서 나와요 (외투를 옆으로 치워두면 상의 소매에서)
+    const sl = tfs.outer && (overlapped || !tfs.top) ? tfs.outer : (tfs.top || tfs.outer), gs = sl && garmentInfo(sl.it);
     if (gs && gs.cuffL) doll.arms = ['L', 'R'].map(sd => { const cf = gs['cuff' + sd]; return { cuff: toD(sl.tf(cf.x, cf.y)), from: toD(cf.ix != null ? sl.tf(cf.ix, cf.iy) : sl.tf(sd === 'L' ? .3 : .7, .12)), short: cf.y < .42, width: (cf.w || .08) * sl.pxu / A.k }; });
     const bt = tfs.bottom, gb = bt && garmentInfo(bt.it);
     if (gb && gb.hemL) {
@@ -994,10 +1000,13 @@ function buildScene(info) {
     }
   }
   // 외투를 입으면 속 상의는 외투 몸판 폭 안쪽만 보여요 (사진마다 다른 소매 각도가 외투 밖으로 삐져나오지 않게)
-  const go = tfs.outer && garmentInfo(tfs.outer.it), topOp = ops.find(o => o.cat === 'top');
-  if (go && go.body && topOp) {
+  // 외투가 겹쳐 있으면 속 상의 소매만 숨겨요. 상의 몸판(소매를 뺀 부분)은 늘 보여서 상의가 사라지지 않아요.
+  const go = tfs.outer && garmentInfo(tfs.outer.it), gt = tfs.top && garmentInfo(tfs.top.it);
+  if (overlapped && go && go.body) {
     const X0 = tfs.outer.tf(go.body.u0, .9).x, X1 = tfs.outer.tf(go.body.u1, .9).x, cw = topOp.w * topOp.s, left = topOp.x + topOp.w / 2 - cw / 2;
-    topOp.clip = { u0: clamp((Math.min(X0, X1) - left) / cw, 0, 1), u1: clamp((Math.max(X0, X1) - left) / cw, 0, 1) };
+    let u0 = (Math.min(X0, X1) - left) / cw, u1 = (Math.max(X0, X1) - left) / cw;
+    if (gt && gt.body) { u0 = Math.min(u0, gt.body.u0); u1 = Math.max(u1, gt.body.u1); }
+    topOp.clip = { u0: clamp(u0, 0, 1), u1: clamp(u1, 0, 1) };
   }
   for (const cat of ['socks', 'shoes']) {
     const it = worn(cat); if (!it) continue;
@@ -1042,7 +1051,7 @@ function renderStage() {
     drawDollCanvas();
     const k = SW / DOLL.W, c = faceC(), r = faceR(); const fs = faceSrc(info.ph); face.classList.toggle('cut', !!(info.ph && info.ph.faceCut));
     if (face.dataset.src !== fs) { face.src = fs; face.dataset.src = fs; }
-    Object.assign(face.style, { left: (c.x - r) * k + 'px', top: (c.y - r) * k + 'px', width: 2 * r * k + 'px', height: 2 * r * k + 'px', zIndex: 5 });
+    Object.assign(face.style, { left: (c.x - r) * k + 'px', top: (c.y - r) * k + 'px', width: 2 * r * k + 'px', height: 2 * r * k + 'px', zIndex: FACE_Z });
   }
   if (info.kind !== 'doll' && posing) setPosing(false);
   $('#poseBtn').hidden = info.kind !== 'doll';
@@ -1726,7 +1735,7 @@ function openPointsEditor(ph) {
 /* ───────────── 코디 저장 ───────────── */
 async function saveLook() {
   const info = stageInfo(); const scene = buildScene(info); const W = 1080, k = W / SW, H = Math.round(SH * k);
-  const c = makeCanvas(W, H); const x = c.getContext('2d');
+  const c = makeCanvas(W, H); const x = c.getContext('2d'); let faceDraw = null;
   try {
     if (info.kind === 'doll') {
       const g = x.createLinearGradient(0, 0, 0, H); g.addColorStop(0, '#D7F0FB'); g.addColorStop(1, '#BFE1F2'); x.fillStyle = g; x.fillRect(0, 0, W, H);
@@ -1735,10 +1744,11 @@ async function saveLook() {
       const f = { ...faceC(), r: faceR() }, kk = W / DOLL.W; const fi = await loadImg(faceSrc(info.ph)); const D = Math.round(2 * f.r * kk);
       const fc = makeCanvas(D, D); const fx = fc.getContext('2d'); fx.drawImage(fi, 0, 0, D, D);
       if (!(info.ph && info.ph.faceCut)) { fx.globalCompositeOperation = 'destination-in'; fx.beginPath(); fx.arc(D / 2, D / 2, D / 2, 0, 7); fx.fill(); }
-      x.drawImage(fc, (f.x - f.r) * kk, (f.y - f.r) * kk);
+      faceDraw = { z: FACE_Z, canvas: fc, x: (f.x - f.r) * kk, y: (f.y - f.r) * kk };
     } else x.drawImage(await loadImg(info.ph.full), 0, 0, W, H);
-    const draws = scene.ops.slice();
+    const draws = scene.ops.slice(); if (faceDraw) draws.push(faceDraw);
     for (const o of draws.sort((a, b) => a.z - b.z)) {
+      if (o.canvas) { x.drawImage(o.canvas, o.x, o.y); continue; }
       const im = await loadImg(o.src);
       x.save(); x.translate((o.x + o.w / 2) * k, (o.y + o.h / 2) * k); x.rotate(o.r * Math.PI / 180); x.scale(o.s, o.s);
       if (o.clip) { x.beginPath(); x.rect(-o.w * k / 2 + o.clip.u0 * o.w * k, -o.h * k / 2, (o.clip.u1 - o.clip.u0) * o.w * k, o.h * k); x.clip(); }
