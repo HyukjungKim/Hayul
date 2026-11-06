@@ -1840,7 +1840,7 @@ document.addEventListener('visibilitychange', () => {
 });
 
 /* ───────────── AI 진짜로 입혀보기 (fal.ai · FASHN 가상 피팅) ───────────── */
-const APP_URL = ''; // 홈 화면 앱 주소 (Cloudflare 배포 후 채워요)
+const APP_URL = 'https://hayuls-closet.twoland0875.workers.dev/'; // 홈 화면 앱 주소
 const FAL = {
   KEY: 'hayul-closet.falKey', base: 'https://queue.fal.run', model: 'fal-ai/fashn/tryon/v1.6',
   key() { try { return localStorage.getItem(this.KEY) || ''; } catch { return ''; } },
